@@ -1,0 +1,94 @@
+# crew-images: base (IMG-1, tycho-ultimate/crew#56).
+#
+# What needs root, and nothing else: system packages and build tools, the runner CLIs at agents.toml's tested
+# floors, and a pinned mise. A repo's languages come from its own mise.toml, installed by mise as `agent` inside
+# the instance (owner decision T8). No secret ever goes in an image: no token, key, login or credential file.
+#
+# Pinning: the base image by digest; every download by version and sha256, checked with sha256sum before it is
+# used. Debian's packages come from the distro's archive, whose signed indexes carry each package's checksum (apt
+# refuses a mismatch); they are upgraded at build time, so the weekly rebuild picks up Debian's security fixes.
+# Each pin's source is in the README ("Pins").
+
+# debian:trixie-slim, its multi-arch index as read on 2026-10-06
+FROM debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f
+
+# Set by buildx for each platform it builds: amd64 or arm64.
+ARG TARGETARCH
+
+# mise, from https://github.com/jdx/mise/releases (the bare linux binary; SHASUMS256.txt of the release)
+ARG MISE_VERSION=2026.10.3
+ARG MISE_SHA256_AMD64=8d48bc510b7d844fad0bc7156c0855c2a1e7230c51e498a7f6b63b021f8b57c5
+ARG MISE_SHA256_ARM64=357260e28904569a6e7124d33b65cef6d043846c07bb8f4906ddf22cc353d61d
+# gh, from https://github.com/cli/cli/releases (gh_<version>_checksums.txt of the release)
+ARG GH_VERSION=2.102.0
+ARG GH_SHA256_AMD64=bb766f710eef8ede859c18578c72c327597cd4c8a85b06001b1f3843c6019386
+ARG GH_SHA256_ARM64=7862c86c72f43df3a2d93ddde6f473285b4e2af61b494849846827e513ef6484
+# Claude Code at agents.toml's tested floor: the native binary, from the release manifest
+# https://downloads.claude.ai/claude-code-releases/<version>/manifest.json (platforms.linux-*.checksum)
+ARG CLAUDE_VERSION=2.1.288
+ARG CLAUDE_SHA256_AMD64=0298068b686e7fdbaf9402a7a587bb7f49c0b0e084de09f69145a0719207640c
+ARG CLAUDE_SHA256_ARM64=359ab6a058fcde9741dff54979a212fd134cdf8e8cfc2f8de02bc350b9e2b9d5
+# Codex CLI at agents.toml's tested floor: the static musl binary, from https://github.com/openai/codex/releases
+# (tag rust-v<version>; the sha256 GitHub records for each release asset)
+ARG CODEX_VERSION=0.160.0
+ARG CODEX_SHA256_AMD64=306865417d4ee7a927785852910a527f41e1e159add390ac5ae3accb67d44a13
+ARG CODEX_SHA256_ARM64=883620139925f677e5a12c95ba87a1d7f421388ebb797b1c10aba42a04ede9d7
+
+LABEL org.opencontainers.image.source="https://github.com/tycho-ultimate/crew-images" \
+      org.opencontainers.image.title="crew-images/base" \
+      org.opencontainers.image.description="crew's base image: system tools, build tools, claude, codex and a pinned mise; no secrets, no sshd"
+
+ENV LANG=C.UTF-8
+
+# System packages: the tools runs use, and what building a repo's native code needs. No sudo, no sshd.
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y --no-install-recommends \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      build-essential ca-certificates curl git jq less libssl-dev pkg-config procps python3 ripgrep unzip \
+      xz-utils zlib1g-dev zsh \
+ && rm -rf /var/lib/apt/lists/*
+
+# The pinned downloads: fetched to files, checked with sha256sum, then installed. Nothing is piped into a shell.
+RUN set -eu; \
+    case "$TARGETARCH" in \
+      amd64) mise_arch=x64;   mise_sha=$MISE_SHA256_AMD64; gh_sha=$GH_SHA256_AMD64; \
+             claude_platform=linux-x64;   claude_sha=$CLAUDE_SHA256_AMD64; \
+             codex_triple=x86_64-unknown-linux-musl;  codex_sha=$CODEX_SHA256_AMD64 ;; \
+      arm64) mise_arch=arm64; mise_sha=$MISE_SHA256_ARM64; gh_sha=$GH_SHA256_ARM64; \
+             claude_platform=linux-arm64; claude_sha=$CLAUDE_SHA256_ARM64; \
+             codex_triple=aarch64-unknown-linux-musl; codex_sha=$CODEX_SHA256_ARM64 ;; \
+      *) echo "unsupported TARGETARCH: '$TARGETARCH' (amd64 or arm64)" >&2; exit 1 ;; \
+    esac; \
+    work=$(mktemp -d); cd "$work"; \
+    curl -fsSL --proto '=https' --tlsv1.2 --retry 3 -o mise \
+      "https://github.com/jdx/mise/releases/download/v${MISE_VERSION}/mise-v${MISE_VERSION}-linux-${mise_arch}"; \
+    curl -fsSL --proto '=https' --tlsv1.2 --retry 3 -o gh.tar.gz \
+      "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${TARGETARCH}.tar.gz"; \
+    curl -fsSL --proto '=https' --tlsv1.2 --retry 3 -o claude \
+      "https://downloads.claude.ai/claude-code-releases/${CLAUDE_VERSION}/${claude_platform}/claude"; \
+    curl -fsSL --proto '=https' --tlsv1.2 --retry 3 -o codex.tar.gz \
+      "https://github.com/openai/codex/releases/download/rust-v${CODEX_VERSION}/codex-${codex_triple}.tar.gz"; \
+    printf '%s  %s\n' "$mise_sha" mise "$gh_sha" gh.tar.gz "$claude_sha" claude "$codex_sha" codex.tar.gz \
+      | sha256sum --strict -c -; \
+    install -m 0755 mise /usr/local/bin/mise; \
+    tar -xzf gh.tar.gz; install -m 0755 "gh_${GH_VERSION}_linux_${TARGETARCH}/bin/gh" /usr/local/bin/gh; \
+    install -m 0755 claude /usr/local/bin/claude; \
+    tar -xzf codex.tar.gz; install -m 0755 "codex-${codex_triple}" /usr/local/bin/codex; \
+    cd /; rm -rf "$work"
+
+# mise's system config: never escalate with sudo, and no tool versions (a repo's own mise.toml names them).
+COPY mise-config.toml /etc/mise/config.toml
+
+# The one user every exec runs as: unprivileged, no password, no sudo. mise is activated for interactive zsh only
+# (no shims on a non-interactive PATH: crew's TOOL-4); a run calls `mise exec` or `mise install` itself.
+RUN useradd --create-home --uid 1000 --user-group --shell /usr/bin/zsh agent \
+ && printf '%s\n' '# crew-images: mise for interactive shells; a repo'"'"'s mise.toml names its tools' \
+      'eval "$(/usr/local/bin/mise activate zsh)"' > /home/agent/.zshrc \
+ && chown agent:agent /home/agent/.zshrc
+
+# Claude Code's native binary updates itself unless told not to: the image's version is the pinned one.
+ENV DISABLE_AUTOUPDATER=1
+
+USER agent
+WORKDIR /home/agent
+CMD ["/usr/bin/zsh"]

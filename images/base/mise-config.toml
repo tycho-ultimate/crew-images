@@ -1,0 +1,7 @@
+# /etc/mise/config.toml in crew-images/base: mise's system config.
+# - never escalate: `mise install --system` and `mise bootstrap` fail rather than call sudo
+#   (crew's research on toolchains, F5; there is no sudo in the image either);
+# - no [tools] here, and none in agent's ~/.config/mise: the image sets no global tool versions.
+#   A repo's own mise.toml (or .tool-versions, rust-toolchain.toml, ...) names its languages.
+[settings]
+system_packages.sudo = false
