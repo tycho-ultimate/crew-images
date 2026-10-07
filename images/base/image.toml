@@ -1,0 +1,24 @@
+# What crew-fleet's images.toml will say about this image (crew's VM-4), and what the test job checks.
+# ci/entry.py prints the images.toml entries from this file and the pushed digest; tests/static.py checks
+# provides against crew's capability vocabulary (tests/crew-capabilities.txt).
+
+# Capabilities from fleet.toml [capabilities] that the image provides: system-level ones, plus mise.
+# Never a language (owner decision T8) and never a vm-host-* (a host's, not an image's).
+provides = ["mise"]
+
+# The unprivileged user every exec runs as (never root).
+user = "agent"
+
+# images.toml's age limit: crew images check notes the pin past this, red at twice that. Rebuilt weekly.
+max_age_days = 30
+
+# The platforms the workflow builds, in crew's words (os/arch); one images.toml entry each.
+platforms = ["linux/arm64", "linux/amd64"]
+
+# Each answers --version in the test job, as agent.
+tools = ["git", "gh", "jq", "zsh", "python3", "make", "gcc", "rg", "curl", "mise", "claude", "codex"]
+
+# The runner CLIs at agents.toml's tested floors (crew's examples/fleet/agents.toml `tested`).
+[floors]
+claude = "2.1.288"
+codex  = "0.160.0"

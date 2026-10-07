@@ -1,0 +1,15 @@
+# crew's capability vocabulary, for images/*/image.toml's provides (tests/static.py, check provides-vocabulary).
+#
+# Source: tycho-ultimate/crew at 2d06b31, examples/fleet/fleet.toml [capabilities.*], and lib/crew/capabilities.py
+# (`mise` and the two vm-host-* names are crew's own words). crew's images.toml parser (lib/crew/images.py) refuses a
+# provides name the fleet's fleet.toml does not declare, and any vm-host-* (a host's capability, never an image's).
+# The real fleet must declare each name an image provides before its images.toml entry can pass `crew fleet check`.
+#
+# One name per line. "host:" marks a host-only name: refused in provides.
+xcode
+rust
+docker-rootless
+gpu
+mise
+host:vm-host-tart
+host:vm-host-oci
